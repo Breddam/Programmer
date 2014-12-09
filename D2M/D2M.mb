@@ -1,0 +1,937 @@
+Include "mapbasic.def"
+Include "icons.def"
+
+Define eye Chr$(34)
+Define lf Chr$(10)
+Define CTRL_LST_KOLONNEINFORMATION	300
+Define CTRL_OK_BTN	301
+Define CTRL_JOIN 302
+Define CTRL_CPR_TITLE 310
+Define CTRL_CPR_VALUE 311
+Define CTRL_CVR_TITLE 312
+Define CTRL_CVR_VALUE 313
+Declare Sub Main
+
+Declare Sub Dialog
+Declare Sub D2M
+Declare Sub D2MEjer
+Declare Sub D2MBorger
+Declare Sub D2MCVR
+Declare Sub ListboxHndl
+Declare Sub Kolonnehandler
+Declare Sub Blank
+Declare Function ErTabelaaben(ByVal Tabelnavn As String) As Logical
+Declare Function ColExists(ByVal Tabelnavn As String, ByVal Kolonnenavn As String) As Logical
+Declare Function GetListString$(ByVal InList As String, ByVal Choice As SmallInt) As String
+Declare Function CreateDirectory Lib "kernel32" Alias "CreateDirectoryA"  (ByVal lpPathName As String, ByVal lpSecurityAttributes As Integer) As Integer
+Declare Function FindExecutable Lib "shell32.dll" Alias "FindExecutableA"
+	(ByVal lpFile As String,
+	ByVal lpDirectory As String,
+	lpResult As String * 256) As Integer
+Declare Function GetIniString  (ByVal szSecName  As String,
+                                ByVal szItemName As String,
+                                ByVal szIniName  As String) As String
+Declare Function GetPrivateProfileString32 Lib "KERNEL32" Alias "GetPrivateProfileStringA"
+        (ByVal szSection       As String,
+         ByVal szEntry         As String,
+         ByVal szDefault       As String,
+         szReturnBuffer        As String,
+         ByVal snReturnBuffer  As SmallInt,
+         ByVal szIniname       As String) As SmallInt
+
+
+Dim sProgramsti As String * 256,
+gsTabName, gsTabPath, gsD2MFolder, gsSkabelonFolder, gsSkabelonName, gsEjerFolder, gsCPRFolder, gsCVRFolder, gsEmne, gsTab, marrKolonner(), gsSelectString, sEjerlav, sMATNR, sEjendomsnummer, sBeliggenhed, sMatrikeladresse, sTMPcol, sKoln, sKolname, sKolnameEjerliste, sEjerListeCols(), sJoinTableCols(), sKolnameBorgerliste, sBorgerListeCols(), sCOLsBorgerliste, sCOLsEjerhøring, sCOLsEjerliste, sCOLsAdministratorliste, sKolnameCVRliste, sCVRlisteCols(), sCOLsCVRliste, gsEjertabel, gsCPRtabel, gsCVRtabel, aAdresseIDCOL As String,
+i, j, k, giWinID, giMetode, err_code, iColsselected, iJoinTableCols As Integer,
+giBufferafstand, iCPRSEnr As Float,
+glD2Mejer, glD2Mborger, glD2MCVR, glPresObj, glSamletHøringsliste, glJoin, glStartWord, glExit As Logical,
+aCol As Alias,
+oBuffer, oTmpBuffer As Object
+
+Sub Main
+	Dim IniFile As String
+OnError GoTo OOPS
+  IniFile=ApplicationDirectory$() + "D2M.ini"
+
+gsD2MFolder=			GetIniString("Stier", "gsD2MFolder", IniFile)
+gsSkabelonFolder=	GetIniString("Stier", "gsSkabelonFolder", IniFile)
+gsEjerFolder=			GetIniString("Stier", "gsEjerFolder", IniFile)
+gsCPRFolder=			GetIniString("Stier", "gsCPRFolder", IniFile)
+gsCVRFolder=			GetIniString("Stier", "gsCVRFolder", IniFile)
+
+gsEjertabel=			GetIniString("Tabelnavne", "gsEjertabel", IniFile)
+gsCPRtabel=				GetIniString("Tabelnavne", "gsCPRtabel", IniFile)
+gsCVRtabel=				GetIniString("Tabelnavne", "gsCVRtabel", IniFile)
+
+gsSkabelonName=		GetIniString("Skabelon", "gsSkabelonName", IniFile)
+
+aAdresseIDCOL=		GetIniString("ID_felt", "aAdresseIDCOL", IniFile)
+		giMetode=2
+'giBufferafstand=0
+'Print aAdresseIDCOL+" geokodningskolonne" 'Kan benyttes til senere geokodning
+Create Buttonpad "D2M" As
+PushButton
+        Icon 133 file "Stevns.dll"
+		Calling Dialog
+        HelpMsg "Send de udvalgte poster til D2M\nSend data til D2M"
+
+Title		"D2M"
+		Width 2
+ToolbarPosition ( 1,3)
+		Fixed
+		Show
+Exit Sub
+OOPS:
+Print Error$()
+Resume Next
+
+End Sub' Main
+
+Sub Dialog
+Dim iDir As Integer
+OnError GoTo OOPS2
+cls
+'Print SelectionInfo(SEL_INFO_NROWS)
+'Print TableInfo(SelectionInfo(SEL_INFO_TABLENAME), TAB_INFO_MAPPABLE)
+  If  SelectionInfo(SEL_INFO_NROWS) =  0  Or TableInfo(SelectionInfo(SEL_INFO_TABLENAME), TAB_INFO_MAPPABLE)=0
+  	Then
+	'Note "Vælg et eller flere objekter fra et kortvindue, og tryk igen!"
+	Exit Sub
+  End If
+OnError GoTo OOPS
+				If Not FileExists(gsD2MFolder)
+				Then
+				iDir= CreateDirectory(gsD2MFolder, 0)
+					If iDir=0
+						Then 'Note "Tabellerne kan ikke gemmes i "+Chr$(10)+gsD2MFolder+Chr$(10)+" Mappen findes ikke - afslutter"
+						Exit Sub
+					End If
+				End If
+		glJoin=0
+
+
+
+
+    Dialog Title "Doc2Mail"  Calling Kolonnehandler
+      Control Checkbox		 Position 8, 5	Value glD2Mejer Into glD2Mejer
+      Control StaticText   Position 23, 5 Title "Høring af ejere"        Width 100
+      Control Checkbox		 Position 8,15 ID CTRL_CPR_VALUE Value glD2Mborger Into glD2Mborger Hide
+      Control StaticText   Position 23,15	ID CTRL_CPR_TITLE Title "Høring af beboere"       Width 100 Hide
+      Control Checkbox		 Position 8,25	ID CTRL_CVR_VALUE Value glD2MCVR Into glD2MCVR Hide
+      Control StaticText   Position 23,25 ID CTRL_CVR_TITLE Title "Høring af virksomheder"  Width 100 Hide
+      Control GroupBox  	 Position 135,5 Title "Bufferafstand, meter:" Width 95 Height 30
+      Control EditText  	 Position 145,15 Value giBufferafstand Into giBufferafstand Width 40
+      Control Radiogroup	 Position 8,45	ID 10 Title "Berører bufferen;Inden i bufferen" Value giMetode Into giMetode Width 100
+      Control GroupBox  	 Position 135,45 Title "Vælg felter fra selection:" Width 95 Height 30
+      Control Checkbox		 Position 155,58	ID CTRL_JOIN Value glJoin Into glJoin Calling ListboxHndl
+      Control MultiListBox Position 250,15 ID CTRL_LST_KOLONNEINFORMATION Width 70 Height 110 Hide
+      Control GroupBox  	 Position 8,80 Title "Overskrift" Width 205 Height 40
+      Control StaticText	 Position 14,90 Title "Overskriften vises i e-boks og brev:" Width 150
+      Control EditText  	 Position 15,100 ID 5 Value gsEmne Into gsEmne Width 180
+      Control CheckBox		 Position 8, 125 ID 11 Value glStartWord Into glStartWord
+      Control StaticText	 Position 23, 125 Title "Start Word?" Width 100
+      Control OKButton		 Position 135,125 ID CTRL_OK_BTN Calling ListboxHndl
+      Control CancelButton Position 175,125
+
+
+
+	If CommandInfo(CMD_INFO_DLG_OK)
+	 Then
+	 Print "Emne: "+gsEmne
+	 'Print giMetode
+ 		 Call D2M
+	End If
+
+Exit Sub
+OOPS2:
+Print "Der kan ikke laves en buffer fra dit udvalg, foretag et andet valg ;-)"
+Exit Sub
+OOPS:
+Print Error$()
+End Sub 'Dialog
+
+Sub ListboxHndl
+Dim i As Integer, sTmpfilename1 As String
+OnError GoTo OOPS
+Do Case TriggerControl()
+Case CTRL_JOIN
+'Print TriggerControl()
+If glJoin=0
+Then glJoin=1
+Alter Control CTRL_LST_KOLONNEINFORMATION Show
+'Print glJoin+"=glJoin"
+Else glJoin=0
+Alter Control CTRL_LST_KOLONNEINFORMATION Hide
+End If
+
+Case CTRL_OK_BTN
+If glJoin=1
+Then
+	gsSelectString="Select "
+	'Print TriggerControl()+" i if glJoin=1"
+	i=1
+		Do While i<>0
+		i= ReadControlValue(CTRL_LST_KOLONNEINFORMATION)
+		'Print i
+			If i<>0
+			Then
+			'Print marrKolonner(i)
+			gsSelectString= gsSelectString+marrKolonner(i)+", "
+			End If
+		Loop
+	gsSelectString=Left$(gsSelectString, Len(gsSelectString)-2)+" From Selection Into tmpSEL"
+	'Print gsSelectString
+	If ErTabelaaben("JoinTable")
+		Then Close Table JoinTable
+	End If
+	If Left$(gsSelectString, 11) <> "Select From"
+	Then
+	Run Command gsSelectString
+			sTmpfilename1=TempFilename$("")
+			Commit Table tmpSEL As sTmpfilename1 TYPE NATIVE Charset "WindowsLatin1"
+			Open Table sTmpfilename1 As JoinTable 'Hide
+	Else
+		glJoin=0
+		'Print glJoin +" i Else"
+	End If
+End If 'glJoin
+End Case
+Exit sub
+
+Exit Sub
+OOPS:
+Print Error$()
+End Sub 'ListboxHndl
+
+
+Sub Kolonnehandler
+  Dim i, nAntalKolonner As Integer
+  OnError GoTo OOPS
+	gsTab = SelectionInfo(SEL_INFO_TABLENAME)
+	nAntalKolonner					= TableInfo(gsTab, TAB_INFO_NCOLS)
+
+	If nAntalKolonner > 0 Then
+		Redim marrKolonner(nAntalKolonner)
+
+		For i = 1 to nAntalKolonner
+			marrKolonner(i)			= ColumnInfo(gsTab, "COL" & i, COL_INFO_NAME)
+
+		Next
+	Else
+	ReDim	marrKolonner(1)
+	marrKolonner(1)="Ingen kolonner"
+	End If
+
+	'**Her viser vi arrayet med værdier i kontrollen
+	Alter Control CTRL_LST_KOLONNEINFORMATION		Title From Variable marrKolonner
+      If gsCPRFolder<>"" AND gsCPRtabel<>""
+      Then
+      	Alter Control CTRL_CPR_VALUE Show
+      	Alter Control CTRL_CPR_TITLE Show
+      End If
+      If gsCVRFolder<>"" AND gsCvRtabel<>""
+      Then
+      	Alter Control CTRL_CVR_VALUE Show
+      	Alter Control CTRL_CVR_TITLE Show
+      End If
+  Exit Sub
+  OOPS:
+  Print Error$()
+  Resume Next
+End Sub 'Kolonnehandler
+
+Sub D2M
+
+  OnError GoTo OOPS
+
+  If SelectionInfo(SEL_INFO_NROWS)>1
+  	Then Create Object As Union
+  					  From Selection
+						 	Into Variable oTmpBuffer
+		Else oTmpBuffer=Selection.obj
+	End If
+	'Print ObjectInfo(oTmpBuffer,OBJ_INFO_TYPE)	+" ObjectInfo oTmpBuffer"
+
+	If giBufferafstand=0 AND ObjectInfo(oTmpBuffer,OBJ_INFO_TYPE)<>All(2,7,8,9) 'Der testes for punkter og linjer. Der kan ske fejl i fremsøgningen, hvis der er valgt punkter eller linjer med 0 i 'Bufferafstand' og 'Inden i bufferen'
+	Then giMetode=1
+	'Print giMetode
+	End If
+
+  If giBufferafstand>0
+  Then
+	 	Create Object As Buffer
+	  	From Selection
+	 		Into Variable oBuffer
+	 		Width giBufferafstand Units "m"
+	 		Resolution 50
+	 			If glJoin AND ErTabelaaben("JoinTable")
+	 			Then Update JoinTable Set Obj=Buffer(Obj, 50, giBufferafstand, "m" )
+	 			End If
+	 Else
+	 oBuffer=oTmpBuffer
+	End If
+
+ 		If giBufferafstand>0
+ 		Then
+			For i=1 to NumWindows()
+
+				If WindowInfo(i, WIN_INFO_TYPE)=WIN_MAPPER
+				Then
+					Insert Into LayerInfo( WindowID(i), 0, LAYER_INFO_NAME)(obj) Values(oBuffer)
+				End If
+			Next
+					Print "Bufferobjektet er gemt i det kosmetiske lag"
+		End If
+'********************************************************************************************************
+If glD2Mejer
+	Then
+	Call D2MEjer
+End If	 		'glD2Mejer
+'********************************************************************************************************
+If glExit=TRUE
+Then
+	glExit=FALSE
+	Exit Sub
+End If
+If glD2Mborger
+	Then
+	Call D2MBorger
+End If 'glD2Mborger
+If glExit=TRUE
+Then
+	glExit=FALSE
+	Exit Sub
+End If
+'********************************************************************************************************
+If glD2MCVR
+	Then
+	Call D2MCVR
+End If 'glD2MCVR
+If glExit=TRUE
+Then
+	glExit=FALSE
+	Exit Sub
+End If
+
+'********************************************************************************************************
+If ErTabelAaben("tmpSEL")
+Then Close Table tmpSEL
+End If
+If ErTabelAaben("JoinTable")
+Then Close Table JoinTable
+End If
+'Exit Sub
+If ErTabelAaben("D2M") AND TableInfo("D2M", TAB_INFO_NROWS)>0
+Then
+		Alter Table "D2M" ( rename Ejers_udvidede_adresse AUDVADR ) Interactive
+	Select * From D2M Where NOT Adresse Into Ingen_adresse Noselect
+		If TableInfo("Ingen_adresse", TAB_INFO_NROWS)>0
+		Then
+			Browse * From  Ingen_adresse
+			If Ask("Der er poster i D2M, som ikke har adresse! Skal de slettes før udsendelse?","Ja","Nej")
+			Then Delete From Ingen_adresse
+			Close Table Ingen_adresse
+			Commit Table D2M
+			End If
+		Else
+			Close Table Ingen_adresse
+		End If
+Browse * From D2M
+				Export "D2M" Into gsD2MFolder+"D2M.csv" Type "ASCII" Overwrite Delimiter ";" CharSet "WindowsLatin1" Titles
+    	err_code = FindExecutable("D2M.csv", gsD2MFolder, sProgramsti)
+    	If  NOT err_code > 32 Then
+    		'Note "Der er problemer med dokumentet "+gsD2MFolder+"D2M.csv"+lf+"Er det allerede åbent?"+lf+"Du bliver nødt til at starte forfra."
+    	ElseIf NOT glStartWord
+    		Then
+		    Run Program eye+sProgramsti+eye + "  " + eye+gsD2MFolder+"D2M.csv"+eye
+			End If
+End If
+    	err_code = FindExecutable(gsSkabelonName, gsSkabelonFolder, sProgramsti)
+    	If  NOT err_code > 32 Then
+    		'Note "Der er problemer med dokumentet "+gsSkabelonFolder+"\"+gsSkabelonName
+    	ElseIf glStartWord
+    	Then
+		    Run Program eye+sProgramsti+eye + "  " + eye+"/z"+gsSkabelonFolder+"\"+gsSkabelonName+eye
+			End If
+If ErTabelAaben("atemp")
+Then Close Table atemp
+End If
+
+
+
+  Exit Sub
+  OOPS:
+  Print Error$()
+  Resume Next
+End Sub 'D2M
+'********************************************************************************************************
+
+Sub D2MEjer
+  OnError GoTo OOPS
+	If ErTabelAaben("Ejerhøringsliste")
+		Then
+			If Ask("Der er allerede en Ejerhøringsliste åben! Vil du gemme ændringer, før du går videre?", "Ja","Nej")
+				Then
+					glExit=TRUE
+					Exit Sub
+				Else
+					Close Table Ejerhøringsliste
+			End If
+End If
+
+
+'Exit Sub
+ 	If NOT ErTabelAaben(gsEjertabel)
+ 		Then
+ 			Print "Åbner Ejere"
+ 			Print "Open Table "+gsEjerFolder+gsEjertabel
+ 		Open Table gsEjerFolder+gsEjertabel
+ 	End If
+	'Print giMetode+" giMetode"
+
+		Do Case giMetode
+			Case 1
+				'Print "Intersects"
+			Select Ejendomsnummer, Ejendomsbeliggenhed, Matrikeladresse, Matrikelnummer, MATNR, Ejers_navn, Ejers_CO_navn, Ejers_adresse, Ejers_udvidede_adresse, Postdistrikt, LANDSEJERLAVSTEKST, D2M, Ejer_CPR_CVR, Administratorkode, ADRESSE_ID, ADRESSELINK_ID, UDVADRESSEID,  Administrators_navn, Administrators_CO_navn, Administrators_adresse, Administrators_udv_adresse, Administrators_postdistrikt, Administrators_CPR_CVR	From gsEjertabel Where obj Intersects oBuffer Into atemp Noselect
+			Case 2
+				'Print "Within"
+			Select Ejendomsnummer, Ejendomsbeliggenhed, Matrikeladresse, Matrikelnummer, MATNR, Ejers_navn, Ejers_CO_navn, Ejers_adresse, Ejers_udvidede_adresse, Postdistrikt, LANDSEJERLAVSTEKST, D2M, Ejer_CPR_CVR, Administratorkode, ADRESSE_ID, ADRESSELINK_ID, UDVADRESSEID,  Administrators_navn, Administrators_CO_navn, Administrators_adresse, Administrators_udv_adresse, Administrators_postdistrikt, Administrators_CPR_CVR	From gsEjertabel Where obj Within oBuffer Into atemp Noselect
+		End Case
+ 	If ErTabelAaben("Ejerliste")
+		Then
+					Close Table Ejerliste
+	End If
+		Browse * From  atemp
+
+	Commit Table atemp As gsD2MFolder+"Ejerliste.TAB"
+	Open Table gsD2MFolder+"Ejerliste.TAB"
+	 	Alter Table "Ejerliste" ( modify Ejendomsnummer Char(250),Ejendomsbeliggenhed Char(250),Matrikelnummer Char(250), Matrikeladresse Char(250) )
+
+	If glJoin
+	Then
+	iJoinTableCols=TableInfo("JoinTable", TAB_INFO_NCOLS)
+	For i = 1 To iJoinTableCols
+		ReDim sJoinTableCols(iJoinTableCols)
+		ReDim sEjerListeCols(iJoinTableCols)
+		sJoinTableCols(i)=ColumnInfo("JoinTable", "COL"+i, COL_INFO_NAME)
+
+		If NOT ColExists("Ejerliste", sJoinTableCols(i)) And sJoinTableCols(i) NOT in ("Rolle","ADRESSERINGSNAVN","CO_navn","Adresse","CPR_CVR_nr","Emne", "PNO")
+		Then Alter Table "Ejerliste" (Add sJoinTableCols(i) Char(150))
+		sEjerListeCols(i)=sJoinTableCols(i)
+		Else sEjerListeCols(i)=sJoinTableCols(i)+"_TMP"
+		Alter Table "Ejerliste" (Add sEjerListeCols(i) Char(150))
+		End If
+		Run Command "Add Column "+eye+"Ejerliste"+eye+" ("+sEjerListeCols(i)+") From JoinTable Set To "+sJoinTableCols(i)+" Where Intersects"
+		Commit Table Ejerliste
+	Next
+	For i=1 To UBound(sEjerListeCols)
+		'Print sEjerListeCols(i)+" sEjerListeCols nr.:"+i
+	Next
+	End If 'glJoin
+
+ 	Add Map Auto Layer Ejerliste
+			Set Map Layer Ejerliste Display Global Global Line (1,2,0)  Global Pen (1,2,0)  Global Brush (2,16776960,16777215)  Global Symbol (34,255,12)  Global Font ("Arial",0,9,0)
+			If WindowInfo(FrontWindow(), WIN_INFO_TYPE)=WIN_MAPPER
+				Then Set Map Window FrontWindow()	Zoom Entire Layer Ejerliste
+			End If
+
+  Create Table "Ejerhøringsliste" (Rolle Char(20), Ejendomsbeliggenhed Char(250), Matrikeladresse Char(250), ADRESSERINGSNAVN Char(50), CO_navn Char(35), Adresse Char(44), Ejers_udvidede_adresse Char(35), Postdistrikt Char(35),
+  Ejendomsnummer Char(250), Matrikelnummer Char(250), D2M Char(12), CPR_CVR_nr Float, aAdresseIDCOL Char(12), UDVadresseID Char(18), Emne Char(120), PNO Char(12))
+   file gsD2MFolder+"Ejerhøringsliste.tab" TYPE NATIVE Charset "WindowsLatin1"
+	Create Map For Ejerhøringsliste CoordSys Earth Projection 8, 115, "m", 9, 0, 0.9996, 500000, 0 Bounds (400000,6000000) (800000,6500000)
+	If glJoin
+	Then
+	For i= 1 To UBound(sEjerListeCols)
+		 Alter Table "Ejerhøringsliste" (Add sEjerListeCols(i) Char(150))
+	Next
+	End If
+'***************************** Tilpasning med aggregering af ejendomsdata ved ejerskab af flere matrikler
+'Print "Group By"
+'Set Table Ejerliste FastEdit On Undo Off
+ 	Select Count(*)"Antal", Ejer_CPR_CVR, Ejers_navn From Ejerliste Group By Ejer_CPR_CVR, Ejers_navn Into atemp Noselect
+ 	Select Antal, Ejer_CPR_CVR, Ejers_navn From atemp Where COL1>1 Group By Ejer_CPR_CVR, Ejers_navn Into Grupperet_Ejerliste Noselect
+ 	Select Matrikelnummer From Ejerliste Where Ejer_CPR_CVR in (Select Ejer_CPR_CVR From Grupperet_Ejerliste) Into atemp Noselect
+ 	Update atemp Set Matrikelnummer=""
+ 	Select Count(*)"Antal", Ejer_CPR_CVR, Ejers_navn From Ejerliste Group By Ejer_CPR_CVR, Ejers_navn Into atemp Noselect
+ 	Select Antal, Ejer_CPR_CVR, Ejers_navn From atemp Where COL1>1 Group By Ejer_CPR_CVR, Ejers_navn Into Grupperet_Ejerliste Noselect
+'Print "/Group By"
+		i=1
+ 		While i<= TableInfo("Grupperet_Ejerliste", TAB_INFO_NROWS)
+ 		'Print i+" While i<= TableInfo(Grupperet_Ejerliste, TAB_INFO_NROWS)"
+			 	Fetch rec i From Grupperet_Ejerliste
+				aCol=Grupperet_Ejerliste.Ejer_CPR_CVR
+				iCPRSEnr=aCol
+			 	Select Ejendomsnummer, Ejendomsbeliggenhed, Matrikeladresse, Matrikelnummer, MATNR, LANDSEJERLAVSTEKST From Ejerliste Where Ejer_CPR_CVR= iCPRSEnr Into EjerEjerlav Noselect
+			 	'Browse * From EjerEjerlav
+				'Note "EjerEjerlav"
+			 	Select LANDSEJERLAVSTEKST From EjerEjerlav Group By LANDSEJERLAVSTEKST Into GrupperetEjerlav Noselect
+			 	'Browse * From GrupperetEjerlav
+			 	'Note "GrupperetEjerlav"
+			 	Select Ejendomsnummer, Ejendomsbeliggenhed From EjerEjerlav Group By Ejendomsnummer Into Ejdnr Noselect
+			 	'Browse * From Ejdnr
+			 	'Note "Ejdnr"
+				Select Matrikeladresse From EjerEjerlav Group By Matrikeladresse Into Matrikeladresse  Noselect
+				'Browse * From Matrikeladresse
+				'Note "Matrikeladresse"
+			 		j=1
+				 	While j<= TableInfo("GrupperetEjerlav", TAB_INFO_NROWS)
+				 	''Print j+" While j<= TableInfo(GrupperetEjerlav, TAB_INFO_NROWS)"
+				 	Fetch rec j From GrupperetEjerlav
+				 		aCol=GrupperetEjerlav.LANDSEJERLAVSTEKST
+				 		sEjerlav=aCol
+				 		Select Matrikelnummer, MATNR, LANDSEJERLAVSTEKST From EjerEjerlav Where LANDSEJERLAVSTEKST=sEjerlav Into EnkeltEjerlav Noselect
+				 		'Browse * From EnkeltEjerlav
+				 		'Note "EnkeltEjerlav"
+				 			k=1
+					 		While k<= TableInfo(EnkeltEjerlav, TAB_INFO_NROWS)
+					 		'Print k+" While k<= TableInfo(EnkeltEjerlav, TAB_INFO_NROWS)"
+					 		Fetch rec k From EnkeltEjerlav
+					 			acol=EnkeltEjerlav.MATNR
+					 			sMATNR=acol
+								Update EjerEjerlav Set Matrikelnummer=Matrikelnummer+sMATNR+", "
+								If k=TableInfo("EnkeltEjerlav", TAB_INFO_NROWS)
+									Then Update EjerEjerlav Set Matrikelnummer=Matrikelnummer+sEjerlav
+								End If
+					 			k=k+1
+					 		Wend 'k<= TableInfo("EnkeltEjerlav", TAB_INFO_NROWS)
+
+					 		If j< TableInfo("GrupperetEjerlav", TAB_INFO_NROWS)
+					 		Then Update EjerEjerlav Set Matrikelnummer=Matrikelnummer+", "
+					 		End If
+				 		j=j+1
+				 	Wend 'j<= TableInfo("GrupperetEjerlav", TAB_INFO_NROWS)
+
+				 	If TableInfo("Ejdnr", TAB_INFO_NROWS)>1
+				 	Then
+				 		sEjendomsnummer=""
+				 		sBeliggenhed=""
+					 	j=1
+					 	While j<= TableInfo("Ejdnr", TAB_INFO_NROWS)
+	 					 	Fetch rec j From Ejdnr
+					 		aCol=Ejdnr.Ejendomsnummer
+					 		sEjendomsnummer=aCol+", "+sEjendomsnummer
+					 		aCol=Ejdnr.Ejendomsbeliggenhed
+					 		sBeliggenhed=aCol+", "+sBeliggenhed
+
+					 		j=j+1
+					 	Wend 'j<= TableInfo("Ejdnr", TAB_INFO_NROWS)
+						Update EjerEjerlav Set Ejendomsnummer=Left$(sEjendomsnummer, Len(sEjendomsnummer)-2), Ejendomsbeliggenhed=Left$(sBeliggenhed, Len(sBeliggenhed)-2)
+				 	End If
+				 	If TableInfo("Matrikeladresse", TAB_INFO_NROWS)>1
+				 	Then
+				 		sMatrikeladresse=""
+					 	j=1
+					 	While j<= TableInfo("Matrikeladresse", TAB_INFO_NROWS)
+	 					 	Fetch rec j From Matrikeladresse
+					 		aCol=Matrikeladresse.Matrikeladresse
+					 		sMatrikeladresse=aCol+", "+sMatrikeladresse
+
+					 		j=j+1
+					 	Wend 'j<= TableInfo("Matrikeladresse", TAB_INFO_NROWS)
+						Update EjerEjerlav Set Matrikeladresse=Left$(sMatrikeladresse, Len(sMatrikeladresse)-2)
+				 	End If
+
+'					For iJoinTableCols=1 To UBound(sEjerListeCols)
+'					sKolnameEjerliste=sEjerListeCols(iJoinTableCols)
+'					Run Command "Select "+sKolnameEjerliste+" From Ejerliste Where Ejer_CPR_CVR= "+iCPRSEnr+" Into tmpSEL Noselect"
+'				 	If TableInfo("tmpSEL", TAB_INFO_NROWS)>1
+'				 	Then
+'				 		sTMPcol=""
+'					 	j=1
+'					 	While j<= TableInfo("tmpSEL", TAB_INFO_NROWS)
+'	 					 	Fetch rec j From tmpSEL
+'					 		aCol=tmpSEL.COL1
+'					 		sTMPcol=sTMPcol+ aCol+", "
+'
+'					 		j=j+1
+'					 	Wend 'j<= TableInfo("tmpSEL", TAB_INFO_NROWS)
+'					 	Update tmpSEL Set COL1=Left$(sTMPcol, Len(sTMPcol)-2)
+'					 	'Print sTMPcol
+'					 End If
+'					Next
+
+			 	i=i+1
+ 		Wend 'i<= TableInfo("Grupperet_Ejerliste", TAB_INFO_NROWS)
+ 		Commit Table Ejerliste
+If ErTabelAaben("EnkeltEjerlav")
+	Then Close Table EnkeltEjerlav
+End If
+If ErTabelAaben("Matrikeladresse")
+	Then Close Table Matrikeladresse
+End If
+If ErTabelAaben("Ejdnr")
+	Then Close Table Ejdnr
+End If
+If ErTabelAaben("GrupperetEjerlav")
+	Then Close Table GrupperetEjerlav
+End If
+If ErTabelAaben("EjerEjerlav")
+	Then Close Table EjerEjerlav
+End If
+'Set Table Ejerliste FastEdit Off Undo On
+'*****************************/ Tilpasning med aggregering af ejendomsdata ved ejerskab af flere matrikler
+'Print "Slut med aggregering"
+	sCOLsEjerliste="Ejers_navn, Ejers_adresse, Postdistrikt, "+aAdresseIDCOL+", UDVadresseID, Ejers_udvidede_adresse, Ejers_co_navn, Ejendomsnummer, Ejendomsbeliggenhed, Matrikeladresse, Matrikelnummer, D2M, Ejer_CPR_CVR"
+	sCOLsEjerhøring="ADRESSERINGSNAVN, Adresse, Postdistrikt, "+aAdresseIDCOL+", UDVadresseID, Ejers_udvidede_adresse, CO_navn, Ejendomsnummer, Ejendomsbeliggenhed, Matrikeladresse, Matrikelnummer, D2M, CPR_CVR_nr"
+	sCOLsAdministratorliste="Administrators_navn, Administrators_adresse, Administrators_postdistrikt, "+aAdresseIDCOL+", UDVadresseID, Administrators_udv_adresse, Administrators_CO_navn, Ejendomsnummer, Ejendomsbeliggenhed, Matrikeladresse, Matrikelnummer, D2M, Ejer_CPR_CVR"
+
+	If glJoin
+	Then
+		For iJoinTableCols=1 To UBound(sEjerListeCols())
+		sCOLsEjerliste=sCOLsEjerliste+", "+sEjerListeCols(iJoinTableCols)
+		sCOLsEjerhøring=sCOLsEjerhøring+", "+sEjerListeCols(iJoinTableCols)
+		sCOLsAdministratorliste=sCOLsAdministratorliste+", "+sEjerListeCols(iJoinTableCols)
+		Next
+		'Print sCOLsAdministratorliste
+		'Print sCOLsEjerhøring
+		'Print sCOLsEjerliste
+	End If
+'Print "Slut med aggregering2"
+
+ 	'Print "Select "+sCOLsEjerliste+" From Ejerliste Where NOT Administratorkode Group By Ejer_CPR_CVR, Ejers_navn Order By Ejendomsbeliggenhed Into atemp Noselect"
+ 	Run Command "Select "+sCOLsEjerliste+" From Ejerliste Where NOT Administratorkode Group By Ejer_CPR_CVR, Ejers_navn Order By Ejendomsbeliggenhed Into atemp Noselect"
+ 	'Note "Insert Into Ejerhøringsliste ( "+sCOLsEjerhøring+") Select "+sCOLsEjerliste+" From atemp"
+ 	Run Command "Insert Into Ejerhøringsliste ( "+sCOLsEjerhøring+") Select "+sCOLsEjerliste+" From atemp"
+	Update Ejerhøringsliste Set Rolle="Ejer"
+'Note "Select "+sCOLsAdministratorliste+" From Ejerliste Where Administratorkode Group By D2M, MATNR, LANDSEJERLAVSTEKST Order By Ejendomsbeliggenhed Into atemp Noselect"
+ 	Run Command "Select "+sCOLsAdministratorliste+" From Ejerliste Where Administratorkode Group By D2M, MATNR, LANDSEJERLAVSTEKST Order By Ejendomsbeliggenhed Into atemp Noselect"
+ 	'Note "Insert Into Ejerhøringsliste ( "+sCOLsEjerhøring+") Select "+sCOLsAdministratorliste+" From atemp"
+ 	Run Command "Insert Into Ejerhøringsliste ( "+sCOLsEjerhøring+") Select "+sCOLsAdministratorliste+" From atemp"
+ 	'Note "Run Command Slut"
+
+		Select Rolle From Ejerhøringsliste Where NOT Rolle Into atemp Noselect
+	Update atemp Set Rolle = "Administrator"
+	Update Ejerhøringsliste Set Emne=gsEmne
+	Commit Table Ejerhøringsliste
+	'Browse * From Ejerliste
+	Browse * From Ejerhøringsliste
+			If ErTabelAaben("D2M")
+				Then
+					Close Table D2M
+				End If
+
+			Commit Table Ejerhøringsliste As gsD2MFolder+"D2M.TAB"
+			Open Table gsD2MFolder+"D2M.TAB"
+				'Browse * From D2M
+				Select CO_navn From D2M Where CO_navn Like ">>NAVN & ADR-BESKYTTELSE<<" Into atemp Noselect
+				If TableInfo("atemp", TAB_INFO_NROWS)>0
+				Then Update atemp Set CO_navn=""
+				Commit Table D2M
+				End If
+				Select CO_navn From D2M Where Left$(CO_navn, 4) Like "adr " Into atemp Noselect
+				If TableInfo("atemp", TAB_INFO_NROWS)>0
+				Then Update atemp Set CO_navn=Right$(CO_navn, Len(CO_navn)-4)
+				Commit Table D2M
+				End If
+
+  Exit Sub
+  OOPS:
+  Print Error$()
+  Resume Next
+End Sub 'D2MEjer
+'********************************************************************************************************
+
+Sub D2MBorger
+  OnError GoTo OOPS
+ 	If ErTabelAaben("Borgerhøringsliste")
+		Then
+			If Ask("Der er allerede en Borgerhøringsliste åben! Vil du gemme ændringer, før du går videre?", "Ja","Nej")
+				Then
+					glExit=TRUE
+					Exit Sub
+				Else
+					Close Table Borgerhøringsliste
+			End If
+		End If
+	 	If ErTabelAaben("Borgerliste")
+		Then
+					Close Table Borgerliste
+		End If
+
+
+ 	If NOT ErTabelAaben(gsCPRtabel)
+ 		Then
+ 			'Print "Åbner GeoBorger"
+ 		Open Table gsCPRFolder+gsCPRtabel
+ 	End If
+
+		Do Case giMetode
+			Case 1
+				'Print "Intersects"
+			 		Select CPR, Alder, Navn, CO_NAVN, Adresse, Postdistrikt, Personnummer, ADRESSE_ID, ADRESSELINK_ID, UDVadresseID From gsCPRtabel Where obj Intersects oBuffer AND Alder>=18 Order By Adresse, Navn Into Borgerliste Noselect
+ 			Case 2
+				'Print "Within"
+		 						 		Select CPR, Alder, Navn, CO_NAVN, Adresse, Postdistrikt, Personnummer, ADRESSE_ID, ADRESSELINK_ID, UDVadresseID From gsCPRtabel Where obj Within oBuffer AND Alder>=18 Order By Adresse, Navn Into Borgerliste Noselect
+		End Case
+
+
+	  Create Table "Borgerhøringsliste" (Rolle Char(20), Ejendomsbeliggenhed Char(75), Matrikeladresse Char(80), ADRESSERINGSNAVN Char(50), CO_navn Char(35), Adresse Char(44), Ejers_udvidede_adresse Char(35), Postdistrikt Char(35),
+  Ejendomsnummer Char(75), Matrikelnummer Char(75), D2M Char(12), CPR_CVR_nr Float, aAdresseIDCOL Char(12), UDVadresseID Char(18), Emne Char(120), PNO Char(12))
+   file gsD2MFolder+"Borgerhøringsliste.tab" TYPE NATIVE Charset "WindowsLatin1"
+	Create Map For Borgerhøringsliste CoordSys Earth Projection 8, 115, "m", 9, 0, 0.9996, 500000, 0 Bounds (400000,6000000) (800000,6500000)
+
+	Run Command "Insert Into Borgerhøringsliste ( ADRESSERINGSNAVN, CO_navn, Adresse, Postdistrikt, D2M, CPR_CVR_nr, "+aAdresseIDCOL+", UDVadresseID)	Select Navn, CO_NAVN, Adresse, Postdistrikt, CPR, Personnummer,"+aAdresseIDCOL+", UDVadresseID From Borgerliste"
+
+	Update Borgerhøringsliste Set Ejendomsbeliggenhed=Adresse, Rolle="Beboer", Emne=gsEmne
+	Add Column "Borgerhøringsliste" (Matrikeladresse) From gsEjertabel Set To Matrikeladresse Where Contains
+	Commit Table Borgerhøringsliste
+
+
+	If glJoin And NOT glD2Mejer
+	Then
+	iJoinTableCols=TableInfo("JoinTable", TAB_INFO_NCOLS)
+		ReDim sJoinTableCols(iJoinTableCols)
+		ReDim sBorgerListeCols(iJoinTableCols)
+	For i = 1 To iJoinTableCols
+		sJoinTableCols(i)=ColumnInfo("JoinTable", "COL"+i, COL_INFO_NAME)
+
+		If NOT ColExists("Borgerhøringsliste", sJoinTableCols(i)) And sJoinTableCols(i) NOT in ("Rolle","ADRESSERINGSNAVN","CO_navn","Adresse","CPR_CVR_nr","Emne", "PNO")
+		Then Alter Table "Borgerhøringsliste" (Add sJoinTableCols(i) Char(150))
+		sBorgerListeCols(i)=sJoinTableCols(i)
+		Else sBorgerListeCols(i)=sJoinTableCols(i)+"_TMP"
+		Alter Table "Borgerhøringsliste" (Add sBorgerListeCols(i) Char(150))
+		End If
+
+		Run Command "Add Column "+eye+"Borgerhøringsliste"+eye+" ("+sBorgerListeCols(i)+") From JoinTable Set To "+sJoinTableCols(i)+" Where Intersects"
+		Commit Table Borgerhøringsliste
+	Next
+
+	'For i=1 To UBound(sBorgerListeCols)
+		'Print sBorgerListeCols(i)+" sBorgerListeCols nr.:"+i
+	'Next
+
+	ElseIf glJoin And glD2Mejer
+	Then
+		ReDim sJoinTableCols(UBound(sEjerListeCols))
+		ReDim sBorgerListeCols(UBound(sEjerListeCols))
+For i= 1 To UBound(sEjerListeCols)
+		sBorgerListeCols(i)=sEjerListeCols(i)
+		 Alter Table "Borgerhøringsliste" (Add sBorgerListeCols(i) Char(150))
+		Run Command "Add Column "+eye+"Borgerhøringsliste"+eye+" ("+sBorgerListeCols(i)+") From JoinTable Set To "+sJoinTableCols(i)+" Where Intersects"
+		Commit Table Borgerhøringsliste
+	Next
+	End If 'glJoin
+
+	sCOLsBorgerliste="Rolle, Ejendomsbeliggenhed, Matrikeladresse, ADRESSERINGSNAVN, CO_navn, Adresse, Postdistrikt, D2M, CPR_CVR_nr, "+aAdresseIDCOL+", UDVadresseID, Emne, PNO"
+ 	If glJoin
+	Then
+		For iJoinTableCols=1 To UBound(sBorgerListeCols())
+		sCOLsBorgerliste=sCOLsBorgerliste+", "+sBorgerListeCols(iJoinTableCols)
+		'Print "sCOLsBorgerliste: "+sCOLsBorgerliste
+		Next
+	End If
+
+		If glD2Mejer 'Altså ejere og borgere
+			Then
+			Select * From Ejerliste, Borgerhøringsliste Where Ejer_CPR_CVR=CPR_CVR_nr Into atemp
+			Select * From Borgerhøringsliste Where CPR_CVR_nr In(Select Ejer_CPR_CVR From atemp) Into b
+				Delete From b 'Ejere skal ikke også høres som borgere
+			Update Borgerhøringsliste Set Emne=gsEmne
+			Commit Table Borgerhøringsliste
+			Pack Table Borgerhøringsliste Data
+ 	Run Command "Insert Into D2M ( "+sCOLsBorgerliste+") Select "+sCOLsBorgerliste+" From Borgerhøringsliste"
+ 	'Print "Insert Into D2M ( "+sCOLsBorgerliste+") Select "+sCOLsBorgerliste+" From Borgerhøringsliste"
+			Commit Table D2M
+		Else
+				If ErTabelAaben("D2M")
+				Then
+					Close Table D2M
+				End If
+
+			Commit Table Borgerhøringsliste As gsD2MFolder+"D2M.TAB"
+			Open Table gsD2MFolder+"D2M.TAB"
+				'Browse * From D2M
+
+		End If '  glD2Mejer
+	Browse * From Borgerhøringsliste
+
+  Exit Sub
+  OOPS:
+  Print Error$()
+  Resume Next
+End Sub 'D2MBorger
+'********************************************************************************************************
+
+Sub D2MCVR
+  OnError GoTo OOPS
+ 	If ErTabelAaben(gsCVRtabel)
+		Then
+			If Ask("Der er allerede en CVRhøringsliste åben! Vil du gemme ændringer, før du går videre?", "Ja","Nej")
+				Then
+					glExit=TRUE
+					Exit Sub
+				Else
+					Close Table CVRhøringsliste
+			End If
+		End If
+	 	If ErTabelAaben("CVRliste")
+		Then
+					Close Table CVRliste
+		End If
+
+
+ 	If NOT ErTabelAaben(gsCVRtabel)
+ 		Then
+ 			'Print "Åbner CVR_produktionsenhed"
+ 		Open Table gsCVRFolder+gsCVRtabel
+ 	End If
+
+		Do Case giMetode
+			Case 1
+				'Print "Intersects"
+			 		Select CVR_nummer, NAVN_UREDIGERET, CO_NAVN, Officiel_adresse, Postnummer, Postdistrikt, ADRESSE_ID, ADRESSELINK_ID, P_NUMMER From gsCVRtabel Where obj	Intersects oBuffer Order By Officiel_adresse Into CVRliste Noselect
+ 			Case 2
+				'Print "Within"
+			 		Select CVR_nummer, NAVN_UREDIGERET, CO_NAVN, Officiel_adresse, Postnummer, Postdistrikt, ADRESSE_ID, ADRESSELINK_ID, P_NUMMER From gsCVRtabel Where obj	Within oBuffer Order By Officiel_adresse Into CVRliste Noselect
+		End Case
+
+
+	  Create Table "CVRhøringsliste" (Rolle Char(20), Ejendomsbeliggenhed Char(75), Matrikeladresse Char(80), ADRESSERINGSNAVN Char(50), CO_navn Char(35), Adresse Char(44), Ejers_udvidede_adresse Char(35), Postdistrikt Char(35),
+  Ejendomsnummer Char(75), Matrikelnummer Char(75), D2M Char(12), CPR_CVR_nr Float, aAdresseIDCOL Char(12), UDVadresseID Char(18), Emne Char(120), PNO Char(12))
+   file gsD2MFolder+"CVRhøringsliste.tab" TYPE NATIVE Charset "WindowsLatin1"
+	Create Map For CVRhøringsliste CoordSys Earth Projection 8, 115, "m", 9, 0, 0.9996, 500000, 0 Bounds (400000,6000000) (800000,6500000)
+
+	Run Command "Insert Into CVRhøringsliste ( ADRESSERINGSNAVN, CO_navn, Adresse, Postdistrikt, D2M, CPR_CVR_nr, "+aAdresseIDCOL+", PNO)	Select NAVN_UREDIGERET, CO_NAVN, Officiel_adresse, Postnummer+"+eye+" "+eye+"+Postdistrikt, CVR_nummer, CVR_nummer, "+aAdresseIDCOL+", P_NUMMER From CVRliste"
+	Update CVRhøringsliste Set Ejendomsbeliggenhed=Adresse, Rolle="Virksomhed", Emne=gsEmne
+	Add Column "CVRhøringsliste" (Matrikeladresse) From gsEjertabel Set To Matrikeladresse Where Contains
+	Commit Table CVRhøringsliste
+
+
+	If glJoin And NOT glD2Mejer AND NOT glD2Mborger
+	Then
+	iJoinTableCols=TableInfo("JoinTable", TAB_INFO_NCOLS)
+		ReDim sJoinTableCols(iJoinTableCols)
+		ReDim sCVRlisteCols(iJoinTableCols)
+	For i = 1 To iJoinTableCols
+		sJoinTableCols(i)=ColumnInfo("JoinTable", "COL"+i, COL_INFO_NAME)
+
+		If NOT ColExists("CVRhøringsliste", sJoinTableCols(i)) And sJoinTableCols(i) NOT in ("Rolle","ADRESSERINGSNAVN","CO_navn","Adresse","CPR_CVR_nr","Emne", "PNO")
+		Then Alter Table "CVRhøringsliste" (Add sJoinTableCols(i) Char(150))
+		sCVRlisteCols(i)=sJoinTableCols(i)
+		Else sCVRlisteCols(i)=sJoinTableCols(i)+"_TMP"
+		Alter Table "CVRhøringsliste" (Add sCVRlisteCols(i) Char(150))
+		End If
+
+		Run Command "Add Column "+eye+"CVRhøringsliste"+eye+" ("+sCVRlisteCols(i)+") From JoinTable Set To "+sJoinTableCols(i)+" Where Intersects"
+		Commit Table CVRhøringsliste
+	Next
+
+	ElseIf glJoin And glD2Mejer
+	Then
+		ReDim sJoinTableCols(UBound(sEjerListeCols))
+		ReDim sCVRlisteCols(UBound(sEjerListeCols))
+For i= 1 To UBound(sEjerListeCols)
+		sCVRlisteCols(i)=sEjerListeCols(i)
+		 Alter Table "CVRhøringsliste" (Add sCVRlisteCols(i) Char(150))
+		Run Command "Add Column "+eye+"CVRhøringsliste"+eye+" ("+sCVRlisteCols(i)+") From JoinTable Set To "+sJoinTableCols(i)+" Where Intersects"
+		Commit Table CVRhøringsliste
+	Next
+	ElseIf glJoin And NOT glD2Mejer AND glD2Mborger
+	Then
+		ReDim sJoinTableCols(UBound(sBorgerListeCols))
+		ReDim sCVRlisteCols(UBound(sBorgerListeCols))
+For i= 1 To UBound(sBorgerListeCols)
+		sCVRlisteCols(i)=sBorgerListeCols(i)
+		 Alter Table "CVRhøringsliste" (Add sCVRlisteCols(i) Char(150))
+		Run Command "Add Column "+eye+"CVRhøringsliste"+eye+" ("+sCVRlisteCols(i)+") From JoinTable Set To "+sJoinTableCols(i)+" Where Intersects"
+		Commit Table CVRhøringsliste
+	Next
+	End If 'glJoin
+
+	sCOLsCVRliste="Rolle, Ejendomsbeliggenhed, Matrikeladresse, ADRESSERINGSNAVN, CO_navn, Adresse, Postdistrikt, D2M, CPR_CVR_nr, "+aAdresseIDCOL+", UDVadresseID, Emne, PNO"
+ 	If glJoin
+	Then
+		For iJoinTableCols=1 To UBound(sCVRlisteCols())
+		sCOLsCVRliste=sCOLsCVRliste+", "+sCVRlisteCols(iJoinTableCols)
+		'Print "sCOLsCVRliste: "+sCOLsCVRliste
+		Next
+	End If
+
+		If glD2Mejer 'Altså ejere og virksomheder
+			Then
+			Select * From Ejerliste, CVRhøringsliste Where Ejer_CPR_CVR=CPR_CVR_nr Into atemp
+			Select * From CVRhøringsliste Where CPR_CVR_nr In(Select Ejer_CPR_CVR From atemp) Into b
+				Delete From b 'Ejere skal ikke også høres som virksomheder
+			Update CVRhøringsliste Set Emne=gsEmne
+			Commit Table CVRhøringsliste
+			Pack Table CVRhøringsliste Data
+ 	Run Command "Insert Into D2M ( "+sCOLsCVRliste+") Select "+sCOLsCVRliste+" From CVRhøringsliste"
+ 	'Print "Insert Into D2M ( "+sCOLsCVRliste+") Select "+sCOLsCVRliste+" From CVRhøringsliste"
+			Commit Table D2M
+		ElseIf glD2Mborger
+		Then
+ 	Run Command "Insert Into D2M ( "+sCOLsCVRliste+") Select "+sCOLsCVRliste+" From CVRhøringsliste"
+ 	'Print "Insert Into D2M ( "+sCOLsCVRliste+") Select "+sCOLsCVRliste+" From CVRhøringsliste"
+			Commit Table D2M
+		Else
+				If ErTabelAaben("D2M")
+				Then
+					Close Table D2M
+				End If
+
+			Commit Table CVRhøringsliste As gsD2MFolder+"D2M.TAB"
+			Open Table gsD2MFolder+"D2M.TAB"
+				'Browse * From D2M
+
+		End If '  glD2Mejer
+	Browse * From CVRhøringsliste
+
+
+  Exit Sub
+  OOPS:
+  Print Error$()
+  Resume Next
+End Sub 'D2MCVR
+
+
+Sub Blank
+  Dim i As Integer
+  OnError GoTo OOPS
+
+
+  Exit Sub
+  OOPS:
+  Print Error$()
+  Resume Next
+End Sub '
+Function ErTabelAaben(ByVal Tabelnavn As String) As Logical
+  Dim n As Integer
+
+  ErTabelAaben = True
+  OnError Goto Hovsa
+  n = TableInfo(Tabelnavn, TAB_INFO_NROWS)
+
+  Exit Function
+
+Hovsa:
+  ErTabelAaben = False
+  Exit Function
+End Function 'ErTabelAaben
+'***********************************************************
+Function ColExists(ByVal Tabelnavn As String, ByVal Kolonnenavn As String) As Logical
+  Dim n As Integer
+
+  ColExists = True
+  OnError Goto OOPS
+  n = ColumnInfo(Tabelnavn, Kolonnenavn, COL_INFO_NUM)
+Exit Function
+OOPS:
+  ColExists = False
+  Exit Function
+End Function 'ColExists
+'***********************************************************
+Function GetIniString(ByVal szSecName  As String,
+                      ByVal szItemName As String,
+                      ByVal szIniName  As String) As String
+
+  Dim szString  As String
+  Dim szString2  As String
+
+  szString = String$(256, " ")
+  szString2 = GetPrivateProfileString32(szSecName, szItemName,
+                                       "", szString,
+                                       256, szIniName)
+
+  GetIniString = szString
+
+End Function
