@@ -68,7 +68,7 @@ gsSkabelonName=		GetIniString("Skabelon", "gsSkabelonName", IniFile)
 aAdresseIDCOL=		GetIniString("ID_felt", "aAdresseIDCOL", IniFile)
 		giMetode=2
 'giBufferafstand=0
-'Print aAdresseIDCOL+" geokodningskolonne" 'Kan benyttes til senere geokodning
+'Print aAdresseIDCOL+" geokodningskolonne" 'Jaja, det er det jo ikke. Det er en joinkolonne ;-)
 Create Buttonpad "D2M" As
 PushButton
         Icon 133 file "Stevns.dll"
@@ -336,16 +336,30 @@ Then
 		Else
 			Close Table Ingen_adresse
 		End If
-Browse * From D2M
-				Export "D2M" Into gsD2MFolder+"D2M.csv" Type "ASCII" Overwrite Delimiter ";" CharSet "WindowsLatin1" Titles
+	Select D2M From D2M Where Len(D2M)<8 Into Intet_validt_D2M_felt Noselect
+		If TableInfo("Intet_validt_D2M_felt", TAB_INFO_NROWS)>0
+		Then
+			Update Intet_validt_D2M_felt Set D2M=""
+			Close Table Intet_validt_D2M_felt
+			Commit Table D2M
+		Else
+			Close Table Intet_validt_D2M_felt
+		End If
+				Browse * From D2M
+				Set Browse Order By Matrikeladresse
+				Select * From D2M Order By Matrikeladresse Into a Noselect
+				Export "a" Into gsD2MFolder+"D2M.csv" Type "ASCII" Overwrite Delimiter ";" CharSet "WindowsLatin1" Titles
     	err_code = FindExecutable("D2M.csv", gsD2MFolder, sProgramsti)
     	If  NOT err_code > 32 Then
-    		'Note "Der er problemer med dokumentet "+gsD2MFolder+"D2M.csv"+lf+"Er det allerede åbent?"+lf+"Du bliver nødt til at starte forfra."
+    		Note "Der er problemer med dokumentet "+gsD2MFolder+"D2M.csv"+lf+"Er det allerede åbent?"+lf+"Du bliver nødt til at starte forfra."
     	ElseIf NOT glStartWord
     		Then
 		    Run Program eye+sProgramsti+eye + "  " + eye+gsD2MFolder+"D2M.csv"+eye
 			End If
-End If
+			If ErTabelAaben("a")
+			Then Close Table a
+			End If
+End If 'ErTabelAaben("D2M") AND TableInfo("D2M", TAB_INFO_NROWS)>0
     	err_code = FindExecutable(gsSkabelonName, gsSkabelonFolder, sProgramsti)
     	If  NOT err_code > 32 Then
     		'Note "Der er problemer med dokumentet "+gsSkabelonFolder+"\"+gsSkabelonName
@@ -401,7 +415,7 @@ End If
 		Then
 					Close Table Ejerliste
 	End If
-		Browse * From  atemp
+		'Browse * From  atemp
 
 	Commit Table atemp As gsD2MFolder+"Ejerliste.TAB"
 	Open Table gsD2MFolder+"Ejerliste.TAB"
