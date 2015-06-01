@@ -12,8 +12,10 @@ Har man ikke adgang til CVR, kan man undlade at skrive sti og navn i ini-filen. 
 Views skal oprettes i Ejendoms- og Miljødatabasen og geokodes i MapInfo. De kan derefter navngives vilkårligt, hvorefter navnene og stierne angives i D2M.INI
 Her angives også, om man benytter ADRESSE_ID eller ADRESSELINK_ID som geokodningskolonne samt stier til de mapper, som benyttes af programmet.
 
-Forudsætningen for, at programmet fungerer i sammenhæng med KMD's Dog2Mail er, at man i sin skabelon har de rette printkoder:
+Forudsætningen for, at programmet fungerer i sammenhæng med KMD's Doc2Mail er, at man i sin skabelon har de rette printkoder:
 {PRINT %%d2m*DOKSTART |d2m*IDENT:"{MERGEFIELD D2M}" |d2m*OVERSKRIFT: {"MERGEFIELD "Emne"}" |d2m*ATTPNO:"{MERGEFIELD PNO}" |d2m*ADDRETURNADDRESS:true \* MERGEFORMAT}
+
+her er
 
 Derudover skal der naturligvis også flettefelter ind i skabelonen:
 «ADRESSERINGSNAVN»
